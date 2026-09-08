@@ -44,8 +44,33 @@ FULL_SWIPE = 0.30
 VERTICAL_RATIO = 1.15
 
 
+MAX_JSON_LINE = 256
+MAX_VELOCITY = 8.0
+
+
+def clamp_velocity(value: float) -> float:
+    if value > MAX_VELOCITY:
+        return MAX_VELOCITY
+    if value < -MAX_VELOCITY:
+        return -MAX_VELOCITY
+    return float(value)
+
+
 def emit(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    try:
+        amount = float(payload.get("amount", 0.0))
+    except (TypeError, ValueError):
+        amount = 0.0
+    try:
+        velocity = float(payload.get("velocity", 0.0))
+    except (TypeError, ValueError):
+        velocity = 0.0
+    payload["amount"] = round(clamp01(amount), 4)
+    payload["velocity"] = round(clamp_velocity(velocity), 4)
+    line = json.dumps(payload, separators=(",", ":"))
+    if len(line) > MAX_JSON_LINE:
+        return
+    sys.stdout.write(line + "\n")
     sys.stdout.flush()
 
 
@@ -198,7 +223,7 @@ class EdgeSwipe:
         dt = max(0.001, t - self.last_t)
         step = (cx - self.last_x) / self.width / dt
         velocity = -step if self.kind == "open" else step
-        return amount, velocity
+        return amount, clamp_velocity(velocity)
 
 
 def _prop_names(device: libevdev.Device) -> list[str]:

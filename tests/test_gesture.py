@@ -80,6 +80,40 @@ class EdgeSwipeTests(unittest.TestCase):
         self.assertTrue(self.s.in_right_edge(900))
         self.assertFalse(self.s.in_right_edge(100))
 
+    def test_amount_stays_in_unit_interval_and_velocity_is_clamped(self):
+        from gesture import MAX_VELOCITY, clamp_velocity, emit, clamp01
+
+        events = self.swipe((990, 400), (0, 400), steps=8)
+        for event in events:
+            self.assertGreaterEqual(event["amount"], 0.0)
+            self.assertLessEqual(event["amount"], 1.0)
+            self.assertGreaterEqual(event["velocity"], -MAX_VELOCITY)
+            self.assertLessEqual(event["velocity"], MAX_VELOCITY)
+        self.assertEqual(clamp_velocity(99), MAX_VELOCITY)
+        self.assertEqual(clamp_velocity(-99), -MAX_VELOCITY)
+        self.assertEqual(clamp01(4), 1.0)
+        self.assertEqual(clamp01(-1), 0.0)
+
+        captured = []
+
+        class FakeOut:
+            def write(self, line):
+                captured.append(line)
+            def flush(self):
+                pass
+
+        import sys as real_sys
+        real_stdout = real_sys.stdout
+        real_sys.stdout = FakeOut()
+        try:
+            emit({"v": 1, "phase": "end", "kind": "open", "amount": 9, "velocity": 50, "fingers": 2})
+        finally:
+            real_sys.stdout = real_stdout
+        self.assertEqual(len(captured), 1)
+        self.assertLessEqual(len(captured[0]), 257)
+        self.assertIn('"amount":1.0', captured[0])
+        self.assertIn('"velocity":8.0', captured[0])
+
 
 class FakeAbs:
     def __init__(self, minimum, maximum):

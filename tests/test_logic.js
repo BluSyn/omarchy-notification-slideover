@@ -110,3 +110,84 @@ test("historyKey prefers id and imageStem uses timestamp-originalId", () => {
   assert.equal(Logic.historyKey({ id: 7, app: "X" }), "id:7")
   assert.equal(Logic.imageStem({ timestamp: 9, originalId: 3 }), "9-3")
 })
+
+test("imageStem refuses path-like originalId values", () => {
+  assert.equal(Logic.imageStem({ timestamp: 9, originalId: "../etc/passwd" }), "")
+  assert.equal(Logic.imageStem({ timestamp: "12;rm", originalId: 4 }), "")
+  assert.equal(Logic.imageStem({ timestamp: 1, originalId: "2-3; id" }), "")
+  assert.match(Logic.imageStem({ timestamp: 1700000000000, originalId: 42 }), /^[0-9]+-[0-9]+$/)
+})
+
+test("history deletion args stay inside Omarchy notification state", () => {
+  const home = "/home/box"
+  const hist = home + "/.local/state/omarchy/notifications/history"
+  const imgs = home + "/.local/state/omarchy/notifications/images"
+  const row = { timestamp: 9, originalId: 3 }
+  const args = Logic.historyDeleteArgs(hist, imgs, row, home)
+  assert.ok(args)
+  assert.equal(args[0], "/usr/bin/bash")
+  assert.equal(args[args.length - 3], hist)
+  assert.equal(args[args.length - 2], "9-3")
+  assert.equal(args[args.length - 1], imgs)
+  assert.ok(!args.some((part) => String(part).includes("*")))
+  assert.equal(Logic.historyDeleteArgs(hist + "/../", imgs, row, home), null)
+  assert.equal(Logic.historyDeleteArgs("/tmp/history", imgs, row, home), null)
+  assert.equal(Logic.historyDeleteArgs(hist, imgs, { timestamp: 1, originalId: "../x" }, home), null)
+  assert.ok(Logic.historyReadArgs(hist, home))
+  assert.equal(Logic.historyReadArgs("/tmp", home), null)
+})
+
+test("notification icons only follow imagesDir file copies or image://", () => {
+  const home = "/home/box"
+  const imgs = home + "/.local/state/omarchy/notifications/images"
+  assert.equal(
+    Logic.notificationIconSource("file://" + imgs + "/9-3-appIcon", imgs, home),
+    "file://" + imgs + "/9-3-appIcon"
+  )
+  assert.equal(Logic.notificationIconSource("file:///etc/passwd", imgs, home), "")
+  assert.equal(Logic.notificationIconSource("file://" + imgs + "/../history/x.json", imgs, home), "")
+  assert.equal(Logic.notificationIconSource("http://evil.example/x.png", imgs, home), "")
+  assert.equal(Logic.notificationIconSource("image://notification/1", imgs, home), "image://notification/1")
+  assert.equal(Logic.notificationIconSource("image://notification/../x", imgs, home), "")
+  assert.equal(Logic.focusAppArgs("/usr/share/omarchy", "Slack")[1], "Slack")
+  assert.equal(Logic.focusAppArgs("/usr/share/omarchy", "-oProxyCommand=x"), null)
+  assert.equal(Logic.focusAppArgs("/usr/share/omarchy", "foo; rm -rf /"), null)
+  assert.equal(Logic.focusAppArgs("/tmp", "Slack"), null)
+  assert.deepEqual(
+    Logic.gestureCommand("/home/box/.config/omarchy/plugins/blusyn.notification-slideover"),
+    [
+      "/usr/bin/setpriv", "--pdeathsig", "TERM", "/usr/bin/python3", "-I", "-u",
+      "/home/box/.config/omarchy/plugins/blusyn.notification-slideover/gesture.py"
+    ]
+  )
+  assert.deepEqual(Logic.gestureCommand("/tmp/../etc"), [])
+})
+
+test("gesture parser rejects oversized lines and clamps amount and velocity", () => {
+  assert.equal(Logic.parseGestureLine("x".repeat(300)), null)
+  const huge = Logic.parseGestureLine('{"phase":"end","kind":"open","amount":4,"velocity":99}')
+  assert.equal(huge.amount, 1)
+  assert.equal(huge.velocity, Logic.MAX_VELOCITY)
+  const neg = Logic.parseGestureLine('{"phase":"update","kind":"close","amount":-2,"velocity":-40}')
+  assert.equal(neg.amount, 0)
+  assert.equal(neg.velocity, -Logic.MAX_VELOCITY)
+  assert.equal(Logic.parseGestureLine("{not json"), null)
+})
+
+test("normalizeEntry caps untrusted strings and strips img tags", () => {
+  const row = Logic.normalizeEntry({
+    id: "7",
+    originalId: "7",
+    app: "<b>Mail</b>",
+    summary: "Hi <img src=\"http://x\">",
+    body: "hello <img src=\"http://x\"> world",
+    glyph: "\u0007A",
+    timestamp: "100"
+  }, false, -1)
+  assert.equal(row.id, 7)
+  assert.equal(row.timestamp, 100)
+  assert.equal(row.body, "hello  world")
+  assert.ok(!row.summary.includes("<img"))
+  assert.ok(!row.glyph.includes("\u0007"))
+  assert.ok(row.app.length <= 64)
+})

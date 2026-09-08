@@ -35,7 +35,8 @@ Item {
 
   readonly property string pluginId: (manifest && manifest.id) || "blusyn.notification-slideover"
   readonly property string pluginDir: (manifest && manifest.__sourceDir) || ""
-  readonly property string gestureScript: pluginDir + "/gesture.py"
+  readonly property string homeDir: String(Quickshell.env("HOME") || "")
+  readonly property string gestureScript: NotificationLogic.confinedPluginFile(root.pluginDir, "gesture.py")
 
   readonly property var notificationService: shell && shell.firstPartyServiceFor
     ? shell.firstPartyServiceFor("omarchy.notifications") : null
@@ -156,10 +157,10 @@ Item {
   }
 
   function iconSource(icon) {
-    var direct = NotificationLogic.notificationIconSource(icon)
+    var direct = NotificationLogic.notificationIconSource(icon, root.imagesDir, root.homeDir)
     if (direct) return direct
     var value = String(icon || "")
-    if (!value) return ""
+    if (!NotificationLogic.isThemeIconName(value)) return ""
     return Quickshell.iconPath(value, true)
   }
 
@@ -189,21 +190,18 @@ Item {
   }
 
   function deleteHistoryFiles(row) {
-    if (!row || !root.historyDir) return
-    var stem = NotificationLogic.imageStem(row)
-    Quickshell.execDetached([
-      "bash", "-c",
-      "rm -f \"$1/$2.json\"; rm -f \"$3/$2\"-*",
-      "--", root.historyDir, stem, root.imagesDir || "/dev/null"
-    ])
+    var args = NotificationLogic.historyDeleteArgs(root.historyDir, root.imagesDir, row, root.homeDir)
+    if (!args) return
+    Quickshell.execDetached(args)
   }
 
   function activateRow(row) {
     if (!row || row.type === "header") return
     if (row.isLive && root.notificationService && typeof root.notificationService.invokePopupDefault === "function") {
       root.notificationService.invokePopupDefault(row.sourceIndex)
-    } else if (row.app) {
-      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-hyprland-focus-app", String(row.app)])
+    } else {
+      var args = NotificationLogic.focusAppArgs(root.omarchyPath, row.app)
+      if (args) Quickshell.execDetached(args)
     }
     root.close()
   }
@@ -228,8 +226,10 @@ Item {
   }
 
   function refreshHistory() {
-    if (!root.historyDir || historyReader.running) return
-    historyReader.command = ["bash", "-c", "awk 1 \"$1\"/*.json 2>/dev/null || true", "--", root.historyDir]
+    if (historyReader.running) return
+    var args = NotificationLogic.historyReadArgs(root.historyDir, root.homeDir)
+    if (!args) return
+    historyReader.command = args
     historyReader.running = true
   }
 
@@ -253,6 +253,8 @@ Item {
   }
 
   function handleGesture(line) {
+    if (line === undefined || line === null) return
+    if (String(line).length > NotificationLogic.maxGestureLine()) return
     var event = NotificationLogic.parseGestureLine(line)
     if (!event) return
     if (event.kind === "open" && root.opened && root.fullyOpen) return
@@ -351,7 +353,7 @@ Item {
   Process {
     id: reservedProc
     running: false
-    command: ["hyprctl", "-j", "monitors"]
+    command: NotificationLogic.reservedMonitorsArgs()
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -364,9 +366,7 @@ Item {
   Process {
     id: gestureProc
     running: false
-    command: root.pluginDir
-      ? ["setpriv", "--pdeathsig", "TERM", "python3", "-u", root.gestureScript]
-      : []
+    command: NotificationLogic.gestureCommand(root.pluginDir)
     stdout: SplitParser {
       onRead: function(data) { root.handleGesture(data) }
     }
@@ -385,12 +385,13 @@ Item {
     interval: 1200
     repeat: false
     onTriggered: {
-      if (root.pluginDir && !gestureProc.running) gestureProc.running = true
+      if (root.gestureScript && !gestureProc.running) gestureProc.running = true
     }
   }
 
   function startGestureWatcher() {
-    if (!root.pluginDir || gestureProc.running) return
+    if (!root.gestureScript || gestureProc.running) return
+    if (!gestureProc.command || gestureProc.command.length === 0) return
     gestureProc.running = true
   }
 
@@ -412,9 +413,9 @@ Item {
 
   IpcHandler {
     target: "notification-slideover"
-    // Do not declare open/close/toggle here: Quickshell attaches IpcHandler
-    // methods onto the item, which would shadow the shell's summon/hide
-    // contract and recurse until the stack blows.
+    // Parameterless only. Do not declare open/close/toggle here: Quickshell
+    // attaches IpcHandler methods onto the item, which would shadow the
+    // shell's summon/hide contract and recurse until the stack blows.
     function state(): string { return root.opened ? "open" : "closed" }
     function ping(): string { return "ok" }
   }
@@ -541,6 +542,7 @@ Item {
 
               Text {
                 text: Qt.formatTime(root.now, "HH:mm")
+                textFormat: Text.PlainText
                 color: root.colForeground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
@@ -549,6 +551,7 @@ Item {
 
               Text {
                 text: Qt.formatDate(root.now, "dddd, MMMM d")
+                textFormat: Text.PlainText
                 color: root.colDim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -570,6 +573,7 @@ Item {
               text: root.dndOn ? "Do Not Disturb" : (root.liveCount > 0
                 ? (root.liveCount === 1 ? "1 new" : root.liveCount + " new")
                 : "Notifications")
+              textFormat: Text.PlainText
               color: root.dndOn ? root.colAccent : root.colDim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -580,6 +584,7 @@ Item {
             Text {
               visible: root.matchCount > 0
               text: "Clear"
+              textFormat: Text.PlainText
               color: root.colDim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -598,8 +603,9 @@ Item {
             id: searchField
             Layout.fillWidth: true
             placeholderText: "Search"
+            maximumLength: NotificationLogic.maxQuery()
             visible: root.matchCount > 0 || root.query.length > 0
-            onTextEdited: root.query = text
+            onTextEdited: root.query = NotificationLogic.plainField(text, NotificationLogic.maxQuery())
             Keys.priority: Keys.BeforeItem
             Keys.onPressed: function(event) {
               if (event.key !== Qt.Key_Escape) return
@@ -632,6 +638,7 @@ Item {
                 id: headerLabel
                 visible: wrap.modelData && wrap.modelData.type === "header"
                 text: wrap.modelData && wrap.modelData.label ? wrap.modelData.label : ""
+                textFormat: Text.PlainText
                 color: root.colDim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -675,6 +682,7 @@ Item {
                   Text {
                     visible: !!(card.row && card.row.glyph)
                     text: card.row && card.row.glyph ? card.row.glyph : ""
+                    textFormat: Text.PlainText
                     color: card.row && card.row.urgency === 2 ? root.colUrgent : root.colAccent
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.icon
@@ -692,6 +700,8 @@ Item {
                       fillMode: Image.PreserveAspectFit
                       asynchronous: true
                       smooth: true
+                      sourceSize.width: Style.space(28)
+                      sourceSize.height: Style.space(28)
                     }
                   }
 
@@ -704,6 +714,7 @@ Item {
                       Text {
                         Layout.fillWidth: true
                         text: card.row && card.row.app ? card.row.app : ""
+                        textFormat: Text.PlainText
                         color: root.colDim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -711,6 +722,7 @@ Item {
                       }
                       Text {
                         text: card.row ? NotificationLogic.formatTimestamp(card.row.timestamp, Date.now()) : ""
+                        textFormat: Text.PlainText
                         color: root.colDim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -721,6 +733,7 @@ Item {
                       Layout.fillWidth: true
                       visible: !!(card.row && card.row.summary)
                       text: card.row && card.row.summary ? card.row.summary : ""
+                      textFormat: Text.PlainText
                       color: root.colForeground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.subtitle
@@ -755,6 +768,7 @@ Item {
                     Text {
                       anchors.centerIn: parent
                       text: "✕"
+                      textFormat: Text.PlainText
                       color: root.colDim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
@@ -788,6 +802,7 @@ Item {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: "󰂚"
+                textFormat: Text.PlainText
                 color: Util.alpha(root.colForeground, 0.22)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.displayLarge
@@ -796,6 +811,7 @@ Item {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.query.trim() === "" ? "You're all caught up" : "No matching notifications"
+                textFormat: Text.PlainText
                 color: root.colDim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -808,6 +824,7 @@ Item {
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
                 text: "Drag in from the right edge of the screen"
+                textFormat: Text.PlainText
                 color: Util.alpha(root.colForeground, 0.45)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption

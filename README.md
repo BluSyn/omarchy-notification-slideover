@@ -205,6 +205,8 @@ Edits under this folder hot-reload. `omarchy restart shell` if the gesture watch
 
 Runs unsandboxed inside `omarchy-shell`. The trackpad watcher is observe-only (no `EVIOCGRAB`). Only install from a source you trust.
 
+Notification app, summary, glyph and body are ingested with length/control caps and rendered as `Text.PlainText`, so markup in a toast cannot become a fetch. Dismissing a historical row deletes only `$HOME/.local/state/omarchy/notifications/history/<digits>-<digits>.json` and the matching `images/<stem>-appIcon` / `images/<stem>-image` copies; any other path is refused. The gesture helper emits bounded JSON (`amount` in 0–1, clamped velocity, short lines) and the overlay drops anything outside that shape. IPC on `notification-slideover` is parameterless (`state`, `ping`).
+
 ## License
 
 MIT

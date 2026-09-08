@@ -1,6 +1,157 @@
 // Pure helpers for the slide-over notification sheet. No QML, no I/O —
 // node --test can require this file directly.
 
+var MAX_APP = 64
+var MAX_SUMMARY = 200
+var MAX_BODY = 2000
+var MAX_GLYPH = 16
+var MAX_ICON = 512
+var MAX_HISTORY_LINE = 16384
+var MAX_GESTURE_LINE = 256
+var MAX_VELOCITY = 8
+var MAX_QUERY = 120
+var STEM_RE = /^[0-9]{1,16}-[0-9]{1,16}$/
+var IMAGE_FILE_RE = /^[0-9]{1,16}-[0-9]{1,16}-(appIcon|image)$/
+var APP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/
+var THEME_ICON_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+var PLUGIN_FILE_RE = /^[A-Za-z0-9._-]+$/
+
+function stripTrailingSlashes(path) {
+  var value = String(path || "")
+  while (value.length > 1 && value.charAt(value.length - 1) === "/")
+    value = value.slice(0, -1)
+  return value
+}
+
+function parseDigits(value) {
+  if (typeof value === "number") {
+    if (!isFinite(value) || value < 0 || value > 9007199254740991) return null
+    return Math.floor(value)
+  }
+  var text = String(value === undefined || value === null ? "" : value)
+  if (!/^[0-9]{1,16}$/.test(text)) return null
+  return Number(text)
+}
+
+function numericId(value) {
+  var parsed = parseDigits(value)
+  return parsed === null ? 0 : parsed
+}
+
+function plainField(value, maxLen) {
+  var limit = maxLen === undefined ? 200 : Number(maxLen)
+  if (!isFinite(limit) || limit < 0) limit = 200
+  var text = String(value || "")
+  text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+  text = text.replace(/[<>&]/g, "")
+  if (text.length > limit) text = text.slice(0, limit)
+  return text
+}
+
+function confinedStateDir(path, home, leaf) {
+  if (leaf !== "history" && leaf !== "images") return ""
+  var raw = stripTrailingSlashes(path)
+  var homePath = stripTrailingSlashes(home)
+  if (!raw || !homePath) return ""
+  if (raw.charAt(0) !== "/" || homePath.charAt(0) !== "/") return ""
+  if (raw.indexOf("\0") >= 0 || homePath.indexOf("\0") >= 0) return ""
+  if (raw.indexOf("..") >= 0 || homePath.indexOf("..") >= 0) return ""
+  var expected = homePath + "/.local/state/omarchy/notifications/" + leaf
+  return raw === expected ? raw : ""
+}
+
+function confinedPluginFile(pluginDir, name) {
+  var dir = stripTrailingSlashes(pluginDir)
+  if (!dir || dir.charAt(0) !== "/") return ""
+  if (dir.indexOf("\0") >= 0 || dir.indexOf("..") >= 0) return ""
+  if (!PLUGIN_FILE_RE.test(String(name || ""))) return ""
+  return dir + "/" + name
+}
+
+function confinedOmarchyBin(omarchyPath, name) {
+  if (name !== "omarchy-hyprland-focus-app") return ""
+  var root = stripTrailingSlashes(omarchyPath)
+  if (!root || root.charAt(0) !== "/") return ""
+  if (root.indexOf("\0") >= 0 || root.indexOf("..") >= 0) return ""
+  if (root.indexOf("/omarchy") === -1) return ""
+  return root + "/bin/" + name
+}
+
+function isThemeIconName(name) {
+  var value = String(name || "")
+  if (!THEME_ICON_RE.test(value)) return false
+  if (value.indexOf("..") >= 0) return false
+  return true
+}
+
+function safeAppName(app) {
+  var name = plainField(app, MAX_APP).trim()
+  if (!APP_NAME_RE.test(name)) return ""
+  if (name.indexOf("..") >= 0) return ""
+  return name
+}
+
+function imageStem(row) {
+  var e = row || {}
+  var ts = parseDigits(e.timestamp)
+  var oidSource = e.originalId !== undefined && e.originalId !== null ? e.originalId : e.id
+  var oid = parseDigits(oidSource)
+  if (ts === null || oid === null) return ""
+  var stem = String(ts) + "-" + String(oid)
+  return STEM_RE.test(stem) ? stem : ""
+}
+
+function historyDeleteArgs(historyDir, imagesDir, row, home) {
+  var hist = confinedStateDir(historyDir, home, "history")
+  var imgs = confinedStateDir(imagesDir, home, "images")
+  var stem = imageStem(row)
+  if (!hist || !imgs || !stem) return null
+  return [
+    "/usr/bin/bash", "-c",
+    "rm -f -- \"$1/$2.json\" \"$3/$2-appIcon\" \"$3/$2-image\"",
+    "--", hist, stem, imgs
+  ]
+}
+
+function historyReadArgs(historyDir, home) {
+  var hist = confinedStateDir(historyDir, home, "history")
+  if (!hist) return null
+  return [
+    "/usr/bin/bash", "-c",
+    "LC_ALL=C\n" +
+    "out=$(/usr/bin/timeout -k 2 -- 8 /usr/bin/awk 1 \"$1\"/*.json 2>/dev/null | /usr/bin/head -c 262145)\n" +
+    "[ ${#out} -le 262144 ] || exit 0\n" +
+    "printf '%s' \"$out\"",
+    "--", hist
+  ]
+}
+
+function reservedMonitorsArgs() {
+  return [
+    "/usr/bin/bash", "-c",
+    "LC_ALL=C\n" +
+    "out=$(/usr/bin/timeout -k 2 -- 5 /usr/bin/hyprctl -j monitors | /usr/bin/head -c 65537)\n" +
+    "[ ${#out} -le 65536 ] || exit 0\n" +
+    "printf '%s' \"$out\""
+  ]
+}
+
+function gestureCommand(pluginDir) {
+  var script = confinedPluginFile(pluginDir, "gesture.py")
+  if (!script) return []
+  return ["/usr/bin/setpriv", "--pdeathsig", "TERM", "/usr/bin/python3", "-I", "-u", script]
+}
+
+function focusAppArgs(omarchyPath, app) {
+  var bin = confinedOmarchyBin(omarchyPath, "omarchy-hyprland-focus-app")
+  var name = safeAppName(app)
+  if (!bin || !name) return null
+  return [bin, name]
+}
+
+function maxGestureLine() { return MAX_GESTURE_LINE }
+function maxQuery() { return MAX_QUERY }
+
 function isChromiumDerived(app, appIcon) {
   var source = (String(app || "") + "\n" + String(appIcon || "")).toLowerCase()
   return source.indexOf("chrom") >= 0 || source.indexOf("brave") >= 0 ||
@@ -34,10 +185,12 @@ function stripImageTags(text) {
 
 function sanitizeBody(body, app, appIcon) {
   var text = stripImageTags(String(body || ""))
-  if (!isChromiumDerived(app, appIcon)) return text
-  return text
-    .replace(/^\s*<a\b[^>]*>\s*(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^<\s]*)?\s*<\/a>\s*/i, "")
-    .replace(/^\s*(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/\S*)?\s+/i, "")
+  if (isChromiumDerived(app, appIcon)) {
+    text = text
+      .replace(/^\s*<a\b[^>]*>\s*(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^<\s]*)?\s*<\/a>\s*/i, "")
+      .replace(/^\s*(?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/\S*)?\s+/i, "")
+  }
+  return plainField(text, MAX_BODY)
 }
 
 function glyphFromHints(hints) {
@@ -61,12 +214,14 @@ function historyKey(row) {
 function parseHistoryFiles(raw, cap) {
   var limit = cap === undefined || cap === null ? 30 : Number(cap)
   if (isNaN(limit)) limit = 30
-  limit = Math.max(0, limit)
-  var lines = String(raw || "").split("\n")
+  limit = Math.max(0, Math.min(50, limit))
+  var source = String(raw || "")
+  if (source.length > 262144) source = source.slice(0, 262144)
+  var lines = source.split("\n")
   var parsed = []
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim()
-    if (!line) continue
+    if (!line || line.length > MAX_HISTORY_LINE) continue
     try {
       var value = JSON.parse(line)
       if (!value || typeof value !== "object") continue
@@ -81,22 +236,26 @@ function parseHistoryFiles(raw, cap) {
 
 function normalizeEntry(value, isLive, sourceIndex) {
   var v = value || {}
-  var id = v.id !== undefined ? v.id : (v.originalId !== undefined ? v.originalId : null)
-  var originalId = v.originalId !== undefined ? v.originalId : id
+  var id = numericId(v.id !== undefined ? v.id : v.originalId)
+  var originalId = numericId(v.originalId !== undefined ? v.originalId : id)
+  var urgency = Number(v.urgency === undefined ? 1 : v.urgency)
+  if (!isFinite(urgency)) urgency = 1
+  if (urgency < 0) urgency = 0
+  if (urgency > 2) urgency = 2
   return {
     type: "row",
     sourceIndex: sourceIndex === undefined ? -1 : sourceIndex,
     isLive: !!isLive,
     id: id,
     originalId: originalId,
-    app: String(v.appName || v.app || "Unknown"),
-    appIcon: String(v.appIcon || ""),
-    summary: String(v.summary || "Notification"),
-    body: String(v.body || ""),
-    image: String(v.image || ""),
-    glyph: String(v.glyph || glyphFromHints(v.hints)),
-    urgency: Number(v.urgency === undefined ? 1 : v.urgency),
-    timestamp: Number(v.timestamp || 0)
+    app: plainField(v.appName || v.app || "Unknown", MAX_APP),
+    appIcon: plainField(v.appIcon || "", MAX_ICON),
+    summary: plainField(v.summary || "Notification", MAX_SUMMARY),
+    body: sanitizeBody(v.body || "", v.appName || v.app, v.appIcon),
+    image: plainField(v.image || "", MAX_ICON),
+    glyph: plainField(v.glyph || glyphFromHints(v.hints), MAX_GLYPH),
+    urgency: urgency,
+    timestamp: numericId(v.timestamp)
   }
 }
 
@@ -190,22 +349,34 @@ function formatTimestamp(ms, nowMs) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
-function imageStem(row) {
-  var e = row || {}
-  return String(e.timestamp || 0) + "-" + String(e.originalId || e.id || 0)
-}
-
-function notificationIconSource(icon) {
+function notificationIconSource(icon, imagesDir, home) {
   var value = String(icon || "")
-  if (value.length === 0) return ""
-  if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
-  if (value.charAt(0) === "/") return "file://" + value
-  return ""
+  if (value.length === 0 || value.length > MAX_ICON) return ""
+  if (value.indexOf("image://") === 0) {
+    if (value.indexOf("..") >= 0 || value.indexOf("\0") >= 0) return ""
+    return value
+  }
+  var filePath = ""
+  if (value.indexOf("file://") === 0) {
+    filePath = value.slice(7)
+    try { filePath = decodeURIComponent(filePath) } catch (e) { return "" }
+  } else if (value.charAt(0) === "/") {
+    filePath = value
+  } else {
+    return ""
+  }
+  var root = confinedStateDir(imagesDir, home, "images")
+  if (!root || !filePath) return ""
+  if (filePath.indexOf("\0") >= 0 || filePath.indexOf("..") >= 0) return ""
+  if (filePath.indexOf(root + "/") !== 0) return ""
+  var rest = filePath.slice(root.length + 1)
+  if (!IMAGE_FILE_RE.test(rest)) return ""
+  return "file://" + root + "/" + rest
 }
 
 function parseGestureLine(raw) {
   var text = String(raw || "").trim()
-  if (!text || text.charAt(0) !== "{") return null
+  if (!text || text.length > MAX_GESTURE_LINE || text.charAt(0) !== "{") return null
   try {
     var value = JSON.parse(text)
     if (!value || typeof value !== "object") return null
@@ -220,6 +391,8 @@ function parseGestureLine(raw) {
     if (amount > 1) amount = 1
     var velocity = Number(value.velocity)
     if (!isFinite(velocity)) velocity = 0
+    if (velocity > MAX_VELOCITY) velocity = MAX_VELOCITY
+    if (velocity < -MAX_VELOCITY) velocity = -MAX_VELOCITY
     return { phase: phase, kind: kind, amount: amount, velocity: velocity }
   } catch (e) {
     return null
@@ -296,9 +469,16 @@ function applyGestureProgress(opened, kind, amount) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    MAX_GESTURE_LINE: MAX_GESTURE_LINE,
+    MAX_VELOCITY: MAX_VELOCITY,
+    MAX_QUERY: MAX_QUERY,
+    maxGestureLine: maxGestureLine,
+    maxQuery: maxQuery,
     isChromiumDerived: isChromiumDerived,
     stripImageTags: stripImageTags,
     sanitizeBody: sanitizeBody,
+    plainField: plainField,
+    numericId: numericId,
     glyphFromHints: glyphFromHints,
     historyKey: historyKey,
     parseHistoryFiles: parseHistoryFiles,
@@ -311,6 +491,15 @@ if (typeof module !== "undefined") {
     withDayHeaders: withDayHeaders,
     formatTimestamp: formatTimestamp,
     imageStem: imageStem,
+    confinedStateDir: confinedStateDir,
+    confinedPluginFile: confinedPluginFile,
+    historyDeleteArgs: historyDeleteArgs,
+    historyReadArgs: historyReadArgs,
+    reservedMonitorsArgs: reservedMonitorsArgs,
+    gestureCommand: gestureCommand,
+    focusAppArgs: focusAppArgs,
+    safeAppName: safeAppName,
+    isThemeIconName: isThemeIconName,
     notificationIconSource: notificationIconSource,
     parseGestureLine: parseGestureLine,
     snapDecision: snapDecision,
