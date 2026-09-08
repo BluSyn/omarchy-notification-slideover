@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Watch a multitouch trackpad and emit macOS-style edge-swipe events.
+"""Watch a multitouch trackpad and emit right-edge swipe events.
 
-Two fingers that *start* on the right-most strip of the pad and move left
+Two fingers that start on the right-most strip of the pad and move left
 open the notification sheet. Two fingers moving right close it. Vertical
 motion is treated as scroll and ignored. JSON objects, one per line, go to
 stdout; diagnostics go to stderr.
 
-This process only *observes* /dev/input — it never grabs the device — so a
+Works on any Linux ABS_MT clickpad (Apple, Synaptics, ELAN, ALPS, HID
+precision pads). Keyboard and mouse-edge drag do not use this process.
+
+This process only observes /dev/input — it never grabs the device — so a
 crash cannot eat the trackpad. A little incidental two-finger scroll can
 leak through at the start of a gesture; that is the trade for not stealing
 the device from libinput.
@@ -25,8 +28,10 @@ from typing import Any
 try:
     import libevdev
 except ImportError:  # pragma: no cover
-    print("gesture.py requires python-libevdev", file=sys.stderr)
-    sys.exit(1)
+    # Watcher is optional: keyboard, mouse-edge drag, and Hyprland binds
+    # still open the sheet. Exit 0 so the overlay does not restart us in a loop.
+    print("python-libevdev is not installed; two-finger edge swipe disabled", file=sys.stderr)
+    sys.exit(0)
 
 
 # Right-most fraction of the pad that counts as the "edge" for *opening*.
@@ -196,6 +201,78 @@ class EdgeSwipe:
         return amount, velocity
 
 
+def _prop_names(device: libevdev.Device) -> list[str]:
+    try:
+        return [str(p) for p in device.properties]
+    except Exception:
+        return []
+
+
+def _has_prop(props: list[str], token: str) -> bool:
+    upper = token.upper()
+    return any(upper in p.upper() for p in props)
+
+
+def is_trackpad(device: libevdev.Device) -> bool:
+    """True for real multitouch clickpads/trackpads, not screens or semi-MT.
+
+    Linux evdev reports ABS_MT on laptops from Apple, Synaptics, ELAN, ALPS,
+    and most HID "Precision Touchpad" devices. X is assumed to increase toward
+    the right, which is the kernel convention, so the right-edge test is not
+    Apple-specific.
+    """
+    if not device.has(libevdev.EV_ABS.ABS_MT_POSITION_X):
+        return False
+    if not device.has(libevdev.EV_ABS.ABS_MT_SLOT):
+        return False
+
+    props = _prop_names(device)
+    # Bounding-box "semi-MT" pads do not report per-finger positions we can
+    # trust for an edge test. Touchscreens (DIRECT) are not trackpads.
+    if _has_prop(props, "SEMI_MT"):
+        return False
+    if _has_prop(props, "DIRECT") and not _has_prop(props, "BUTTONPAD"):
+        return False
+
+    name = (device.name or "").lower()
+    named = any(
+        token in name
+        for token in (
+            "trackpad",
+            "touchpad",
+            "synaptics",
+            "synps/2",
+            "elan",
+            "alps",
+            "bcm5974",
+            "magic trackpad",
+            "apple spi",
+            "pixart",
+            "cirque",
+            "dll",
+            "hid-over-i2c",
+        )
+    )
+    if named or _has_prop(props, "BUTTONPAD"):
+        return True
+    try:
+        return bool(device.has(libevdev.EV_KEY.BTN_TOOL_DOUBLETAP))
+    except Exception:
+        return False
+
+
+def _axis_range(device: libevdev.Device, code: Any) -> tuple[int, int] | None:
+    info = device.absinfo[code]
+    if info is None:
+        return None
+    lo, hi = int(info.minimum), int(info.maximum)
+    if lo > hi:
+        lo, hi = hi, lo
+    if hi - lo < 100:
+        return None
+    return lo, hi
+
+
 class SlotTracker:
     """Reconstruct current finger positions from ABS_MT slot events."""
 
@@ -225,28 +302,6 @@ class SlotTracker:
         return out
 
 
-def is_trackpad(device: libevdev.Device) -> bool:
-    if not device.has(libevdev.EV_ABS.ABS_MT_POSITION_X):
-        return False
-    if not device.has(libevdev.EV_ABS.ABS_MT_SLOT):
-        return False
-    name = (device.name or "").lower()
-    if "trackpad" in name or "touchpad" in name:
-        return True
-    try:
-        if device.has(libevdev.EV_KEY.BTN_TOOL_DOUBLETAP):
-            return True
-    except Exception:
-        pass
-    try:
-        props = [str(p) for p in device.properties]
-        if any("BUTTONPAD" in p or "POINTER" in p for p in props):
-            return True
-    except Exception:
-        pass
-    return False
-
-
 def open_trackpads() -> list[tuple[str, Any, libevdev.Device, EdgeSwipe, SlotTracker]]:
     found: list[tuple[str, Any, libevdev.Device, EdgeSwipe, SlotTracker]] = []
     for path in sorted(glob.glob("/dev/input/event*")):
@@ -262,17 +317,17 @@ def open_trackpads() -> list[tuple[str, Any, libevdev.Device, EdgeSwipe, SlotTra
         if not is_trackpad(device):
             handle.close()
             continue
-        abs_x = device.absinfo[libevdev.EV_ABS.ABS_MT_POSITION_X]
-        abs_y = device.absinfo[libevdev.EV_ABS.ABS_MT_POSITION_Y]
+        abs_x = _axis_range(device, libevdev.EV_ABS.ABS_MT_POSITION_X)
+        abs_y = _axis_range(device, libevdev.EV_ABS.ABS_MT_POSITION_Y)
         if abs_x is None or abs_y is None:
             handle.close()
             continue
-        swipe = EdgeSwipe(abs_x.minimum, abs_x.maximum, abs_y.minimum, abs_y.maximum)
+        swipe = EdgeSwipe(abs_x[0], abs_x[1], abs_y[0], abs_y[1])
         os.set_blocking(handle.fileno(), False)
         found.append((path, handle, device, swipe, SlotTracker()))
         print(
-            f"watching {path} ({device.name}) x={abs_x.minimum}..{abs_x.maximum} "
-            f"y={abs_y.minimum}..{abs_y.maximum} edge_x>={swipe.edge_x:.0f}",
+            f"watching {path} ({device.name}) x={abs_x[0]}..{abs_x[1]} "
+            f"y={abs_y[0]}..{abs_y[1]} edge_x>={swipe.edge_x:.0f}",
             file=sys.stderr,
             flush=True,
         )
@@ -305,14 +360,49 @@ def pump_device(
                 emit(payload)
 
 
+def list_devices() -> int:
+    """Print every candidate pad and exit. Used by the README troubleshooting steps."""
+    n = 0
+    for path in sorted(glob.glob("/dev/input/event*")):
+        try:
+            handle = open(path, "rb")
+        except OSError as exc:
+            print(f"{path}: unreadable ({exc})")
+            continue
+        try:
+            device = libevdev.Device(handle)
+        except Exception as exc:
+            print(f"{path}: {exc}")
+            handle.close()
+            continue
+        accepted = is_trackpad(device)
+        abs_x = _axis_range(device, libevdev.EV_ABS.ABS_MT_POSITION_X) if accepted else None
+        mark = "watch" if accepted and abs_x else "skip"
+        print(f"{mark}  {path}  {device.name!r}  props={_prop_names(device)}")
+        if accepted and abs_x:
+            n += 1
+        handle.close()
+    if n == 0:
+        print("no multitouch trackpad found (keyboard shortcut and right-edge mouse drag still work)")
+    return 0
+
+
 def run() -> None:
     print("notification-slideover gesture watcher starting", file=sys.stderr, flush=True)
+    delay = 1.5
     while True:
         devices = open_trackpads()
         if not devices:
-            print("no multitouch trackpad found; retrying", file=sys.stderr, flush=True)
-            time.sleep(1.5)
+            print(
+                f"no multitouch trackpad found; retrying in {delay:.0f}s "
+                "(Super+period / right-edge drag still work)",
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(delay)
+            delay = min(30.0, delay * 2)
             continue
+        delay = 1.5
         try:
             while True:
                 ready, _, _ = select.select([item[1] for item in devices], [], [], 2.0)
@@ -335,6 +425,8 @@ def run() -> None:
 
 if __name__ == "__main__":
     try:
+        if "--list" in sys.argv:
+            raise SystemExit(list_devices())
         run()
     except KeyboardInterrupt:
         pass

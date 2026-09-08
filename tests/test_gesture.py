@@ -4,7 +4,8 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from gesture import EdgeSwipe
+import libevdev
+from gesture import EdgeSwipe, is_trackpad, _axis_range, _has_prop
 
 
 def fingers(a, b):
@@ -78,6 +79,71 @@ class EdgeSwipeTests(unittest.TestCase):
         self.assertGreater(self.s.edge_x, 800)
         self.assertTrue(self.s.in_right_edge(900))
         self.assertFalse(self.s.in_right_edge(100))
+
+
+class FakeAbs:
+    def __init__(self, minimum, maximum):
+        self.minimum = minimum
+        self.maximum = maximum
+
+
+class FakeDevice:
+    def __init__(self, name, codes, props, absinfo=None):
+        self.name = name
+        self._codes = set(codes)
+        self.properties = props
+        self.absinfo = absinfo or {}
+
+    def has(self, code):
+        return code in self._codes
+
+
+MT = [libevdev.EV_ABS.ABS_MT_POSITION_X, libevdev.EV_ABS.ABS_MT_SLOT]
+DOUBLETAP = MT + [libevdev.EV_KEY.BTN_TOOL_DOUBLETAP]
+
+
+class TrackpadMatchTests(unittest.TestCase):
+    def test_apple_spi_is_accepted(self):
+        d = FakeDevice("Apple SPI Trackpad", MT, ["INPUT_PROP_POINTER:0", "INPUT_PROP_BUTTONPAD:2"])
+        self.assertTrue(is_trackpad(d))
+
+    def test_synaptics_and_elan_names_are_accepted(self):
+        self.assertTrue(is_trackpad(FakeDevice("SynPS/2 Synaptics TouchPad", MT, ["INPUT_PROP_BUTTONPAD:2"])))
+        self.assertTrue(is_trackpad(FakeDevice("ELAN1200:00 04F3:3090 Touchpad", MT, ["INPUT_PROP_BUTTONPAD:2"])))
+
+    def test_clickpad_without_a_brand_name_is_accepted(self):
+        d = FakeDevice("Generic PNP device", DOUBLETAP, ["INPUT_PROP_BUTTONPAD:2"])
+        self.assertTrue(is_trackpad(d))
+
+    def test_touchscreen_is_rejected(self):
+        d = FakeDevice("ELAN Touchscreen", MT, ["INPUT_PROP_DIRECT:1"])
+        self.assertFalse(is_trackpad(d))
+
+    def test_semi_mt_is_rejected(self):
+        d = FakeDevice("Synaptics TM", MT, ["INPUT_PROP_SEMI_MT:1", "INPUT_PROP_POINTER:0"])
+        self.assertFalse(is_trackpad(d))
+
+    def test_pointer_tablet_without_pad_signals_is_rejected(self):
+        d = FakeDevice("Wacom Intuos", MT, ["INPUT_PROP_POINTER:0"])
+        self.assertFalse(is_trackpad(d))
+
+    def test_has_prop_is_case_tolerant(self):
+        self.assertTrue(_has_prop(["INPUT_PROP_BUTTONPAD:2"], "buttonpad"))
+        self.assertFalse(_has_prop(["INPUT_PROP_POINTER:0"], "BUTTONPAD"))
+
+
+class AxisRangeTests(unittest.TestCase):
+    def test_swaps_inverted_min_max(self):
+        d = FakeDevice("pad", MT, [], {
+            libevdev.EV_ABS.ABS_MT_POSITION_X: FakeAbs(800, 0),
+        })
+        self.assertEqual(_axis_range(d, libevdev.EV_ABS.ABS_MT_POSITION_X), (0, 800))
+
+    def test_rejects_tiny_axes(self):
+        d = FakeDevice("pad", MT, [], {
+            libevdev.EV_ABS.ABS_MT_POSITION_X: FakeAbs(0, 10),
+        })
+        self.assertIsNone(_axis_range(d, libevdev.EV_ABS.ABS_MT_POSITION_X))
 
 
 if __name__ == "__main__":

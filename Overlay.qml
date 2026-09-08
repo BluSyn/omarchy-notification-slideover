@@ -321,7 +321,14 @@ Item {
     stdout: SplitParser {
       onRead: function(data) { root.handleGesture(data) }
     }
-    onExited: gestureRestart.restart()
+    onExited: {
+      // 0 means the watcher is optional and chose to stop (no python-libevdev).
+      // Keyboard, mouse-edge drag, and Hyprland binds still open the sheet.
+      var code = 1
+      try { code = Number(gestureProc.exitCode) } catch (e) { code = 1 }
+      if (code === 0) return
+      gestureRestart.restart()
+    }
   }
 
   Timer {
@@ -726,6 +733,18 @@ Item {
                 color: root.colDim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
+              }
+
+              Text {
+                visible: root.query.trim() === ""
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Style.space(240)
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                text: "Drag in from the right edge of the screen"
+                color: Util.alpha(root.colForeground, 0.45)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
               }
             }
           }

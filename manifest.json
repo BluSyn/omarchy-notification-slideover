@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "id": "blusyn.notification-slideover",
   "name": "Notification Slideover",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Steven Bower",
   "contributors": [
     "Grok (xAI)"
   ],
   "license": "MIT",
-  "description": "macOS-style notification center: a translucent slide-over sheet from the right edge, opened by a two-finger swipe from the right of the trackpad. Uses Omarchy's notification service for live toasts and history.",
+  "description": "Translucent notification history sheet that slides over the desktop from the right edge. Open it with a two-finger trackpad edge swipe, a right-edge mouse drag, or a keybind. Uses Omarchy's notification service; does not replace the daemon.",
   "kinds": [
     "overlay"
   ],

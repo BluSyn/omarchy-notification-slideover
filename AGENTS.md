@@ -6,13 +6,14 @@
 | --- | --- |
 | `Overlay.qml` | Layer-shell sheet, IPC, history IO, gesture process. |
 | `NotificationLogic.js` | Pure merge/search/history/gesture helpers. `node --test` runs it. |
-| `gesture.py` | libevdev watcher. `EdgeSwipe` is the testable classifier; the daemon is `run()`. |
+| `gesture.py` | libevdev watcher. `EdgeSwipe` / `is_trackpad` are testable; `--list` is for support. |
+| `contrib/hyprland.lua` | Copy-paste Super+period bind and optional 4-finger gesture. Not installed automatically. |
 
 ## Contracts that will bite you
 
 **`opened` vs `progress`.** `opened` is the committed state the shell IPC `toggle`/`isPluginOpen` path reads. `progress` is the visual 0–1. A trackpad drag from closed must *not* set `opened` until snap, or a keybind mid-drag will fight the gesture.
 
-**Do not grab the trackpad.** `gesture.py` is observe-only. Grabbing `/dev/input/event2` to swallow scroll will freeze the pad if the process dies. Incidental scroll at gesture start is accepted.
+**Do not grab the trackpad.** `gesture.py` is observe-only. Grabbing the event node to swallow scroll will freeze the pad if the process dies. Incidental scroll at gesture start is accepted. Missing `python-libevdev` must exit 0 so the overlay does not restart the watcher in a loop.
 
 **Open is edge-strict; close is not.** Two fingers must begin in the right-most `EDGE_FRACTION` of the pad and move left to open. Close is any two-finger swipe right — the overlay ignores those events when the sheet is shut, so browser-forward in the middle of the pad still works.
 
@@ -26,7 +27,7 @@
 
 ## Hyprland
 
-`SUPER + period` toggles the overlay (`Cmd+.`; Super+comma is already dismiss-last). Four-finger left/right is an extra toggle next to the existing three-finger workspace swipe. Two-finger Hyprland gestures are *not* bound — they steal scrolling.
+Plugins cannot write `~/.config/hypr`. Ship binds only as `contrib/hyprland.lua` and README copy-paste. `SUPER + period` is the keyboard path (Super+comma is already dismiss-last). Four-finger left/right is optional and libinput-generic. Two-finger Hyprland gestures must not be bound — they steal scrolling. Two-finger *edge* swipe is evdev inside `gesture.py` and needs no Hyprland stanza.
 
 ## Tests
 
