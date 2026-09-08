@@ -6,6 +6,8 @@ It reads live toasts and on-disk history from Omarchy's first-party `omarchy.not
 
 Author: [Steven Bower](https://github.com/BluSyn). Co-author: Grok (xAI).
 
+![Notification slideover](screenshots/slideover.png)
+
 ## Using it
 
 The sheet is usable on any Omarchy machine. Trackpad hardware is optional.
