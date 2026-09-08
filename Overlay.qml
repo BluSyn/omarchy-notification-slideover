@@ -69,7 +69,7 @@ Item {
   readonly property color colAccent: Color.accent
   readonly property color colUrgent: Color.urgent
   readonly property color colBorder: Color.menu.border
-  readonly property real sheetAlpha: barTransparent ? 0.55 : 0.92
+  readonly property real sheetAlpha: barTransparent ? 0.84 : 0.94
   readonly property color sheetColor: Util.alpha(Color.background, sheetAlpha)
   readonly property int cardRadius: notificationService && notificationService.cornerRadius
     ? notificationService.cornerRadius : Style.cornerRadius
