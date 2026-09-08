@@ -236,6 +236,55 @@ function snapDecision(amount, velocity, kind) {
   return kind === "close" ? "close" : "open"
 }
 
+function parseReserved(value) {
+  var out = { left: 0, top: 0, right: 0, bottom: 0 }
+  if (Array.isArray(value) && value.length >= 4) {
+    out.left = Math.max(0, Number(value[0]) || 0)
+    out.top = Math.max(0, Number(value[1]) || 0)
+    out.right = Math.max(0, Number(value[2]) || 0)
+    out.bottom = Math.max(0, Number(value[3]) || 0)
+    return out
+  }
+  if (value && typeof value === "object") {
+    out.left = Math.max(0, Number(value.left) || 0)
+    out.top = Math.max(0, Number(value.top) || 0)
+    out.right = Math.max(0, Number(value.right) || 0)
+    out.bottom = Math.max(0, Number(value.bottom) || 0)
+  }
+  return out
+}
+
+function reservedForMonitor(raw, screenName) {
+  try {
+    var monitors = JSON.parse(String(raw || "[]"))
+    if (!Array.isArray(monitors) || monitors.length === 0) return null
+    var want = String(screenName || "")
+    for (var i = 0; i < monitors.length; i++) {
+      var mon = monitors[i]
+      if (!mon) continue
+      if (!want || String(mon.name || "") === want) return mon.reserved
+    }
+    return monitors[0] ? monitors[0].reserved : null
+  } catch (e) {
+    return null
+  }
+}
+
+function barInsets(position, hidden, barSize, notchHeight, reserved) {
+  if (hidden) return { top: 0, right: 0, bottom: 0, left: 0 }
+  var pos = String(position || "top")
+  if (pos !== "top" && pos !== "bottom" && pos !== "left" && pos !== "right") pos = "top"
+  var fallback = Math.max(0, Number(barSize) || 0)
+  if (pos === "top") fallback = Math.max(fallback, Math.max(0, Number(notchHeight) || 0))
+  var r = parseReserved(reserved)
+  return {
+    top: pos === "top" ? Math.max(fallback, r.top) : 0,
+    right: pos === "right" ? Math.max(fallback, r.right) : 0,
+    bottom: pos === "bottom" ? Math.max(fallback, r.bottom) : 0,
+    left: pos === "left" ? Math.max(fallback, r.left) : 0
+  }
+}
+
 function applyGestureProgress(opened, kind, amount) {
   var a = Number(amount)
   if (!isFinite(a)) a = 0
@@ -265,6 +314,9 @@ if (typeof module !== "undefined") {
     notificationIconSource: notificationIconSource,
     parseGestureLine: parseGestureLine,
     snapDecision: snapDecision,
-    applyGestureProgress: applyGestureProgress
+    applyGestureProgress: applyGestureProgress,
+    parseReserved: parseReserved,
+    reservedForMonitor: reservedForMonitor,
+    barInsets: barInsets
   }
 }

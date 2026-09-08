@@ -73,6 +73,39 @@ test("gesture line parser and snap decision", () => {
   assert.equal(Logic.applyGestureProgress(true, "close", 0.25), 0.75)
 })
 
+test("barInsets clear the bar edge completely and ignore the other three", () => {
+  assert.deepEqual(
+    Logic.barInsets("top", false, 26, 0, [0, 32, 0, 0]),
+    { top: 32, right: 0, bottom: 0, left: 0 }
+  )
+  assert.deepEqual(
+    Logic.barInsets("right", false, 28, 0, [0, 0, 40, 0]),
+    { top: 0, right: 40, bottom: 0, left: 0 }
+  )
+  assert.deepEqual(
+    Logic.barInsets("bottom", false, 26, 0, null),
+    { top: 0, right: 0, bottom: 26, left: 0 }
+  )
+  assert.deepEqual(
+    Logic.barInsets("left", false, 28, 0, { left: 30, top: 0, right: 0, bottom: 0 }),
+    { top: 0, right: 0, bottom: 0, left: 30 }
+  )
+  assert.deepEqual(
+    Logic.barInsets("top", true, 26, 32, [0, 32, 0, 0]),
+    { top: 0, right: 0, bottom: 0, left: 0 }
+  )
+})
+
+test("reservedForMonitor picks the named output", () => {
+  const raw = JSON.stringify([
+    { name: "DP-1", reserved: [1, 2, 3, 4] },
+    { name: "eDP-1", reserved: [0, 32, 0, 0] }
+  ])
+  assert.deepEqual(Logic.parseReserved(Logic.reservedForMonitor(raw, "eDP-1")), {
+    left: 0, top: 32, right: 0, bottom: 0
+  })
+})
+
 test("historyKey prefers id and imageStem uses timestamp-originalId", () => {
   assert.equal(Logic.historyKey({ id: 7, app: "X" }), "id:7")
   assert.equal(Logic.imageStem({ timestamp: 9, originalId: 3 }), "9-3")

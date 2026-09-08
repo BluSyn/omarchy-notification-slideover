@@ -87,9 +87,34 @@ Item {
     if (w <= 0) return target
     return Math.max(Style.space(320), Math.min(target, Math.round(w * 0.34)))
   }
-  readonly property int topGap: barPosition === "top" ? liveBarSize : 0
-  readonly property int bottomGap: barPosition === "bottom" ? liveBarSize : 0
   readonly property int edgeWidth: Style.space(12)
+  // Compositor exclusive zone on the bar's edge. bar.barSize is the style
+  // token and is short of the notched Apple bar, which is what made the
+  // sheet nibble a few pixels of the menu. Hyprland's reserved inset is the
+  // real occupied strip for top/bottom/left/right bars.
+  property int insetTop: 0
+  property int insetRight: 0
+  property int insetBottom: 0
+  property int insetLeft: 0
+
+  function applyInsets(reserved) {
+    var next = NotificationLogic.barInsets(
+      root.barPosition,
+      !root.bar || root.bar.barHidden,
+      root.liveBarSize,
+      Style.bar.notchHeight,
+      reserved
+    )
+    root.insetTop = next.top
+    root.insetRight = next.right
+    root.insetBottom = next.bottom
+    root.insetLeft = next.left
+  }
+
+  function refreshInsets() {
+    if (reservedProc.running) return
+    reservedProc.running = true
+  }
 
   function open(payloadJson) {
     root.gestureActive = false
@@ -284,11 +309,14 @@ Item {
   }
 
   onQueryChanged: rebuildRows()
+  onBarPositionChanged: root.refreshInsets()
+  onLiveBarSizeChanged: root.refreshInsets()
   onOpenedChanged: {
     if (opened) {
       root.now = new Date()
       root.refreshHistory()
       root.rebuildRows()
+      root.refreshInsets()
     }
   }
 
@@ -317,6 +345,19 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.parseHistory(text)
+    }
+  }
+
+  Process {
+    id: reservedProc
+    running: false
+    command: ["hyprctl", "-j", "monitors"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var screenName = panel.screen ? String(panel.screen.name || "") : ""
+        root.applyInsets(NotificationLogic.reservedForMonitor(text, screenName))
+      }
     }
   }
 
@@ -354,7 +395,11 @@ Item {
   }
 
   onPluginDirChanged: root.startGestureWatcher()
-  Component.onCompleted: Qt.callLater(root.startGestureWatcher)
+  Component.onCompleted: {
+    root.applyInsets(null)
+    Qt.callLater(root.startGestureWatcher)
+    Qt.callLater(root.refreshInsets)
+  }
 
   Connections {
     target: root.notificationService ? root.notificationService.popupModel : null
@@ -378,6 +423,12 @@ Item {
     id: panel
     visible: true
     anchors { top: true; bottom: true; left: true; right: true }
+    margins {
+      top: root.insetTop
+      right: root.insetRight
+      bottom: root.insetBottom
+      left: root.insetLeft
+    }
     color: "transparent"
     surfaceFormat.opaque: false
     exclusionMode: ExclusionMode.Ignore
@@ -411,7 +462,6 @@ Item {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.right: parent.right
-        anchors.topMargin: root.topGap
 
         MouseArea {
           anchors.fill: parent
@@ -427,8 +477,8 @@ Item {
       Item {
         id: sheet
         width: root.sheetWidth
-        height: parent.height - root.topGap - root.bottomGap
-        y: root.topGap
+        height: parent.height
+        y: 0
         x: parent.width - width * root.progress
         clip: true
 
