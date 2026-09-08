@@ -77,7 +77,7 @@ Item {
   }
   readonly property color sheetInk: root.darkTheme ? Qt.rgba(0, 0, 0, 1) : Qt.rgba(1, 1, 1, 1)
   readonly property color sheetSolid: Qt.tint(Color.background, Util.alpha(root.sheetInk, 0.34))
-  readonly property real sheetAlpha: barTransparent ? 0.93 : 0.97
+  readonly property real sheetAlpha: barTransparent ? 0.98 : 0.99
   readonly property color sheetColor: Util.alpha(root.sheetSolid, root.sheetAlpha)
   readonly property int cardRadius: notificationService && notificationService.cornerRadius
     ? notificationService.cornerRadius : Style.cornerRadius

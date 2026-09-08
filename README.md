@@ -119,7 +119,7 @@ python3 ~/.config/omarchy/plugins/blusyn.notification-slideover/gesture.py --lis
 ## Design notes
 
 - **Overlay layer, `ExclusionMode.Ignore`.** Tiled windows stay put.
-- **Glass, not a dimmer.** The sheet uses the theme background, shifted toward black or white for contrast, at high opacity so type stays readable over busy windows. The rest of the desktop is only lightly shaded.
+- **Barely transparent.** The sheet uses the theme background, shifted toward black or white for contrast, at ~98% opacity so it still reads as glass without letting busy windows through.
 - **Clears the bar completely.** The overlay is inset by Hyprland's reserved edge for whatever side the Omarchy bar occupies (top, bottom, left, or right), including the Apple notch strip. It never covers a few pixels of the bar.
 - **History is Omarchy's.** Individual history dismissals delete the matching file under `~/.local/state/omarchy/notifications/history/` when the service has no `removeHistoryEntry` API.
 
