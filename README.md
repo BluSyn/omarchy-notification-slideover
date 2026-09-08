@@ -31,6 +31,14 @@ You should see `blusyn.notification-slideover` **enabled**, and the sheet should
 
 Omarchy plugins **cannot** write `~/.config/hypr`. The next section is the only extra step, and it depends on how you use the machine.
 
+### Remove
+
+```bash
+omarchy plugin remove blusyn.notification-slideover
+```
+
+That disables the overlay and deletes the plugin folder. It does **not** edit Hyprland. If you added a `Super+period` bind, a four-finger gesture, or a `dofile(.../contrib/hyprland.lua)` line, delete those from `~/.config/hypr/bindings.lua` and `~/.config/hypr/input.lua` yourself, then `hyprctl reload`.
+
 ---
 
 ## 2. Choose how you open it
