@@ -69,8 +69,16 @@ Item {
   readonly property color colAccent: Color.accent
   readonly property color colUrgent: Color.urgent
   readonly property color colBorder: Color.menu.border
-  readonly property real sheetAlpha: barTransparent ? 0.84 : 0.94
-  readonly property color sheetColor: Util.alpha(Color.background, sheetAlpha)
+  // Stay on the theme background, but pull it toward black (dark themes) or
+  // white (light themes) so type still reads when a busy window is behind.
+  readonly property bool darkTheme: {
+    var c = Color.background
+    return (c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722) < 0.5
+  }
+  readonly property color sheetInk: root.darkTheme ? Qt.rgba(0, 0, 0, 1) : Qt.rgba(1, 1, 1, 1)
+  readonly property color sheetSolid: Qt.tint(Color.background, Util.alpha(root.sheetInk, 0.34))
+  readonly property real sheetAlpha: barTransparent ? 0.93 : 0.97
+  readonly property color sheetColor: Util.alpha(root.sheetSolid, root.sheetAlpha)
   readonly property int cardRadius: notificationService && notificationService.cornerRadius
     ? notificationService.cornerRadius : Style.cornerRadius
   readonly property int sheetWidth: {
@@ -387,7 +395,7 @@ Item {
       Rectangle {
         anchors.fill: parent
         color: Color.background
-        opacity: root.fullyOpen ? 0.10 : 0
+        opacity: root.fullyOpen ? 0.22 : 0
         Behavior on opacity { NumberAnimation { duration: 180 } }
       }
 
@@ -580,7 +588,9 @@ Item {
                 width: parent.width
                 implicitHeight: visible ? rowContent.implicitHeight + Style.space(16) : 0
                 radius: root.cardRadius
-                color: cardHover.containsMouse ? Util.alpha(root.colForeground, 0.06) : "transparent"
+                color: cardHover.containsMouse
+                  ? Style.hoverFillFor(root.colForeground, root.colAccent)
+                  : Style.normalFillFor(root.colForeground, root.colAccent)
                 borderSpec: Border.flat(Util.alpha(root.colForeground, cardHover.containsMouse ? 0.22 : 0.12), 1)
 
                 readonly property var row: wrap.modelData
