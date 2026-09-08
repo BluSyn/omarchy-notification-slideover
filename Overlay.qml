@@ -423,12 +423,6 @@ Item {
     id: panel
     visible: true
     anchors { top: true; bottom: true; left: true; right: true }
-    margins {
-      top: root.insetTop
-      right: root.insetRight
-      bottom: root.insetBottom
-      left: root.insetLeft
-    }
     color: "transparent"
     surfaceFormat.opaque: false
     exclusionMode: ExclusionMode.Ignore
@@ -436,22 +430,34 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.fullyOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     mask: Region {
-      item: root.fullyOpen ? clickCatcher : (root.sheetVisible ? sheet : edgeHit)
+      item: root.fullyOpen ? contentArea : (root.sheetVisible ? sheet : edgeHit)
     }
 
     Item {
       id: clickCatcher
       anchors.fill: parent
 
-      Rectangle {
+      // Everything except the Omarchy bar strip. The layer-shell surface is
+      // full-screen (so it can sit on Overlay); drawing and hit-testing stay
+      // inside this box so the bar is neither covered nor click-blocked.
+      Item {
+        id: contentArea
         anchors.fill: parent
+        anchors.topMargin: root.insetTop
+        anchors.rightMargin: root.insetRight
+        anchors.bottomMargin: root.insetBottom
+        anchors.leftMargin: root.insetLeft
+      }
+
+      Rectangle {
+        anchors.fill: contentArea
         color: Color.background
         opacity: root.fullyOpen ? 0.22 : 0
         Behavior on opacity { NumberAnimation { duration: 180 } }
       }
 
       MouseArea {
-        anchors.fill: parent
+        anchors.fill: contentArea
         enabled: root.fullyOpen && !root.sheetBusy
         onClicked: if (root.opened && !root.sheetBusy) root.close()
       }
@@ -459,9 +465,9 @@ Item {
       Item {
         id: edgeHit
         width: root.edgeWidth
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.right: parent.right
+        anchors.top: contentArea.top
+        anchors.bottom: contentArea.bottom
+        anchors.right: contentArea.right
 
         MouseArea {
           anchors.fill: parent
@@ -477,9 +483,9 @@ Item {
       Item {
         id: sheet
         width: root.sheetWidth
-        height: parent.height
-        y: 0
-        x: parent.width - width * root.progress
+        height: contentArea.height
+        y: contentArea.y
+        x: contentArea.x + contentArea.width - width * root.progress
         clip: true
 
         Rectangle {
