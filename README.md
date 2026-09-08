@@ -1,68 +1,124 @@
 # Notification Slideover
 
-A translucent notification history sheet for [Omarchy](https://omarchy.org/). It slides over the desktop from the right edge and does **not** push windows aside.
+A notification history sheet for [Omarchy](https://omarchy.org/). It slides in from the right and **does not move your windows**.
 
-It reads live toasts and on-disk history from Omarchy's first-party `omarchy.notifications` service. It does not replace the notification daemon, and it does not replay history as new popups.
+It uses Omarchy’s built-in `omarchy.notifications` service. It does not replace the notification daemon and does not replay old toasts as new popups.
 
-Author: [Steven Bower](https://github.com/BluSyn). Co-author: Grok (xAI).
+Author: [Steven Bower](https://github.com/BluSyn) · Co-author: Grok (xAI)
 
 ![Notification slideover](screenshots/slideover.png)
 
-## Using it
+Click a row to jump to the app. Hover ✕ to dismiss one. **Clear** wipes live toasts and saved history. **Esc** or a click outside closes the sheet.
 
-The sheet is usable on any Omarchy machine. Trackpad hardware is optional.
+---
 
-| Input | Where it is configured | Needs a trackpad? |
-| --- | --- | --- |
-| Two-finger swipe **left from the right edge of the pad** (follows your fingers) | Built into the plugin (`gesture.py`) | Yes, any real multitouch pad |
-| Two-finger swipe right while open | Built into the plugin | Yes |
-| Drag the **right edge of the screen** | Built into the plugin | No |
-| `Super+period` (`Cmd+.`) | Hyprland bind you add (see below) | No |
-| Four-finger swipe left / right | Optional Hyprland gesture (see below) | Yes, 4-finger libinput |
-| Click a notification | Built in — jumps to the app | No |
-| Hover ✕ / Clear / Esc / click outside | Built in | No |
+## 1. Install the plugin
 
-Desktops, VMs, and laptops without a multitouch pad should bind `Super+period` and/or use the right-edge mouse drag. The two-finger watcher simply stays idle.
-
-## Install
+Works on every Omarchy machine.
 
 ```bash
 omarchy plugin add https://github.com/BluSyn/omarchy-notification-slideover.git --enable
 ```
 
-HTTPS is enough. Then add the keyboard shortcut (and optionally the four-finger swipe) — **Omarchy plugins cannot write `~/.config/hypr`**, so this step is manual.
-
-### Keyboard shortcut (recommended)
-
-Check that the key is free:
+Check it loaded:
 
 ```bash
-omarchy menu keybindings --print | grep -i period
+omarchy plugin list | grep slideover
+omarchy-shell shell toggle blusyn.notification-slideover '{}'
 ```
 
-If `SUPER + period` is already bound, unbind it first. Then in `~/.config/hypr/bindings.lua`:
+You should see `blusyn.notification-slideover` **enabled**, and the sheet should open. Close it with Esc.
 
-```lua
-o.bind(
-  "SUPER + period",
-  "Notification slideover",
-  "omarchy-shell shell toggle blusyn.notification-slideover '{}'"
-)
+Omarchy plugins **cannot** write `~/.config/hypr`. The next section is the only extra step, and it depends on how you use the machine.
+
+---
+
+## 2. Choose how you open it
+
+| Your machine | What to set up |
+| --- | --- |
+| **Any PC, VM, or laptop** | Keyboard shortcut (recommended) and/or mouse drag |
+| **Laptop with a real multitouch pad** (Apple, Synaptics, ELAN, ALPS, …) | Same as above, plus two-finger edge swipe (built in) |
+| **Want a Mac-style extra gesture** | Optional four-finger swipe in Hyprland |
+
+You can enable more than one.
+
+### Keyboard — all devices
+
+This is the path if you have no trackpad.
+
+1. See if the key is free:
+
+   ```bash
+   omarchy menu keybindings --print | grep -i period
+   ```
+
+2. If `SUPER + period` is already listed, add this **above** the new bind in `~/.config/hypr/bindings.lua`:
+
+   ```lua
+   hl.unbind("SUPER + period")
+   ```
+
+   (`Super` is the Cmd key on a Mac keyboard.)
+
+3. Add the bind:
+
+   ```lua
+   o.bind(
+     "SUPER + period",
+     "Notification slideover",
+     "omarchy-shell shell toggle blusyn.notification-slideover '{}'"
+   )
+   ```
+
+4. Save. Hyprland reloads on save. Confirm:
+
+   ```bash
+   hyprctl reload
+   hyprctl configerrors
+   omarchy menu keybindings --print | grep -i slideover
+   ```
+
+You should see `SUPER + PERIOD → Notification slideover`.
+
+### Mouse — all devices
+
+No config. Drag inward from the **right edge of the screen**. Drag the sheet’s left edge the other way to close it.
+
+### Trackpad — laptops
+
+Two-finger swipe is **built into the plugin**. No Hyprland bind.
+
+- **Open:** two fingers start on the **right-most strip of the pad**, swipe left. The sheet follows your fingers.
+- **Close:** two-finger swipe right while it is open.
+
+This is not Apple-only. Linux `ABS_MT` clickpads (Apple SPI / Magic Trackpad, Synaptics, ELAN, ALPS, HID precision pads) are picked up automatically.
+
+You need:
+
+1. To be in the `input` group (Omarchy default). Check with `groups`. If you just added yourself, log out and back in.
+2. `python-libevdev` (only for this swipe):
+
+   ```bash
+   omarchy pkg add python-libevdev
+   omarchy restart shell
+   ```
+
+   Without that package, keyboard and mouse still work.
+
+See what the watcher will use:
+
+```bash
+python3 ~/.config/omarchy/plugins/blusyn.notification-slideover/gesture.py --list
 ```
 
-Hyprland reloads that file on save. Confirm with `hyprctl reload` and `hyprctl configerrors`.
+A line starting with `watch` is your pad. If every line is `skip`, use the keyboard or mouse instead.
 
-The ready-made file is `contrib/hyprland.lua` (keybind plus optional four-finger swipe). Either copy the snippets, or:
+Do **not** add a two-finger bind in Hyprland — that steals scrolling. Edge-swipe is read from the pad directly.
 
-```lua
-dofile(os.getenv("HOME") .. "/.config/omarchy/plugins/blusyn.notification-slideover/contrib/hyprland.lua")
-```
+### Optional: four-finger swipe
 
-`dofile` tracks plugin updates; a copy-paste survives removing the plugin without breaking Hyprland.
-
-### Optional four-finger swipe
-
-This is a Hyprland/libinput gesture, so it works on Synaptics, ELAN, Apple, and other pads libinput already uses for workspace swipes. Put it in `~/.config/hypr/input.lua` (or use `contrib/hyprland.lua` above):
+Works on any pad libinput already uses for 3/4-finger gestures. Add to `~/.config/hypr/input.lua`:
 
 ```lua
 hl.gesture({
@@ -81,47 +137,51 @@ hl.gesture({
 })
 ```
 
-Do **not** bind a two-finger Hyprland gesture — that steals scrolling. The macOS-style two-finger *edge* swipe is implemented inside the plugin by reading the pad directly.
+### One-file shortcut
 
-### Two-finger edge swipe (no Hyprland config)
+`contrib/hyprland.lua` is the keyboard bind plus the four-finger swipe. Copy the bits you want, or load the whole file from `~/.config/hypr/bindings.lua`:
 
-The plugin starts a small observer on `/dev/input` (it never grabs the device). Any Linux multitouch trackpad that reports `ABS_MT` slots should work: Apple SPI/Magic Trackpad, Synaptics, ELAN, ALPS, and HID precision pads. You must be in the `input` group (Omarchy's default).
-
-Optional package for that watcher only:
-
-```bash
-omarchy pkg add python-libevdev
+```lua
+dofile(os.getenv("HOME") .. "/.config/omarchy/plugins/blusyn.notification-slideover/contrib/hyprland.lua")
 ```
 
-Without it, two-finger swipe is disabled; keyboard, mouse-edge drag, and the four-finger Hyprland gesture still work.
+`dofile` tracks plugin updates. A copy-paste still works if you later remove the plugin.
 
-List what the watcher would use:
-
-```bash
-python3 ~/.config/omarchy/plugins/blusyn.notification-slideover/gesture.py --list
-```
-
-## Requirements
-
-- Omarchy with `omarchy.notifications` enabled
-- For two-finger edge swipe: `python-libevdev` and membership in `input`
+---
 
 ## Troubleshooting
 
-| Symptom | What to try |
-| --- | --- |
-| Keybind does nothing | `omarchy plugin list` should show `blusyn.notification-slideover` enabled. Run `omarchy-shell shell toggle blusyn.notification-slideover '{}'` to test without Hyprland. |
-| Two-finger swipe does nothing, keybind works | `python3 …/gesture.py --list`. If every device is `skip`, the pad is not true multitouch (or is a touchscreen). Use the keybind or right-edge drag. |
-| `unreadable` on `/dev/input/event*` | `groups` should include `input`. Log out after adding the group. |
-| Incidental scroll at the start of an edge swipe | Expected. The watcher only observes the pad, so a few pixels of two-finger scroll can leak. |
-| Plugin update overwrote nothing in Hyprland | Intended. Binds live in your config; update them only if the toggle command in this README changes. |
+**The keybind does nothing.**  
+`omarchy plugin list` should show the plugin enabled. This should still open it:
 
-## Design notes
+```bash
+omarchy-shell shell toggle blusyn.notification-slideover '{}'
+```
 
-- **Overlay layer, `ExclusionMode.Ignore`.** Tiled windows stay put.
-- **Barely transparent.** The sheet uses the theme background, shifted toward black or white for contrast, at ~98% opacity so it still reads as glass without letting busy windows through.
-- **Clears the bar completely.** The overlay is inset by Hyprland's reserved edge for whatever side the Omarchy bar occupies (top, bottom, left, or right), including the Apple notch strip. It never covers a few pixels of the bar.
-- **History is Omarchy's.** Individual history dismissals delete the matching file under `~/.local/state/omarchy/notifications/history/` when the service has no `removeHistoryEntry` API.
+If that works, the Hyprland bind is wrong or the key is still used by something else (`omarchy menu keybindings --print`).
+
+**Two-finger swipe does nothing; the keybind works.**  
+Run `gesture.py --list`. No `watch` line means the pad is not true multitouch (or is a touchscreen). Use keyboard or mouse.
+
+**`--list` says `unreadable` on `/dev/input/event*`.**  
+`groups` must include `input`. Log out after adding the group.
+
+**The sheet covers a few pixels of the bar, or ignores a left/bottom bar.**  
+It reads Hyprland’s reserved edge. Restart the shell if you just moved the bar: `omarchy restart shell`.
+
+**A little scroll leaks at the start of an edge swipe.**  
+Expected. The watcher only observes the pad; it never grabs it.
+
+**A plugin update did not change my shortcut.**  
+Intended. Hyprland binds live in your config, not in the plugin.
+
+---
+
+## Notes
+
+- Overlay layer, no exclusive zone — tiled windows stay put.
+- The sheet is ~98% opaque, using the theme background (shifted toward black or white for contrast).
+- History is Omarchy’s. Dismissing one historical row deletes `~/.local/state/omarchy/notifications/history/<timestamp>-<id>.json` when the service has no per-item API.
 
 ## Development
 
@@ -131,11 +191,11 @@ python3 tests/test_gesture.py
 omarchy plugin validate .
 ```
 
-Saving anything under this folder hot-reloads plugin code. `omarchy restart shell` if the gesture watcher gets stuck.
+Edits under this folder hot-reload. `omarchy restart shell` if the gesture watcher gets stuck.
 
 ## Security
 
-The plugin runs unsandboxed inside `omarchy-shell`. The trackpad watcher is observe-only: it never `EVIOCGRAB`s the device. Only install this from a source you trust.
+Runs unsandboxed inside `omarchy-shell`. The trackpad watcher is observe-only (no `EVIOCGRAB`). Only install from a source you trust.
 
 ## License
 
