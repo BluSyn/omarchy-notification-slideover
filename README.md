@@ -8,7 +8,9 @@ Author: [Steven Bower](https://github.com/BluSyn) · Co-author: Grok (xAI)
 
 ![Notification slideover](screenshots/slideover.png)
 
-Click a row to jump to the app. Hover ✕ to dismiss one. **Clear** wipes live toasts and saved history. **Esc** or a click outside closes the sheet.
+![Opening and closing the slideover](screenshots/slideover.gif)
+
+Click a row to jump to the app. Hover ✕ to dismiss one. **Clear** wipes live toasts and saved history. **Esc** or a click outside closes the sheet. The sheet slides in from the right; tiled windows stay put.
 
 ---
 
