@@ -153,6 +153,8 @@ test("notification icons only follow imagesDir file copies or image://", () => {
   assert.equal(Logic.focusAppArgs("/usr/share/omarchy", "-oProxyCommand=x"), null)
   assert.equal(Logic.focusAppArgs("/usr/share/omarchy", "foo; rm -rf /"), null)
   assert.equal(Logic.focusAppArgs("/tmp", "Slack"), null)
+  assert.equal(Logic.focusAppArgs("/tmp/omarchy-evil", "Slack"), null)
+  assert.equal(Logic.focusAppArgs("/usr/share/omarchy-extra", "Slack"), null)
   assert.deepEqual(
     Logic.gestureCommand("/home/box/.config/omarchy/plugins/blusyn.notification-slideover"),
     [
@@ -172,6 +174,30 @@ test("gesture parser rejects oversized lines and clamps amount and velocity", ()
   assert.equal(neg.amount, 0)
   assert.equal(neg.velocity, -Logic.MAX_VELOCITY)
   assert.equal(Logic.parseGestureLine("{not json"), null)
+})
+
+test("gesture stream assembler caps a line before SplitParser can grow it", () => {
+  const open = '{"phase":"end","kind":"open","amount":0.4,"velocity":0.1}\n'
+  let state = Logic.emptyGestureBuffer()
+  state = Logic.consumeGestureChunk(state, open.slice(0, 10))
+  assert.equal(state.lines.length, 0)
+  state = Logic.consumeGestureChunk(state, open.slice(10))
+  assert.equal(state.lines.length, 1)
+  assert.equal(Logic.parseGestureLine(state.lines[0]).kind, "open")
+
+  const overflow = Logic.consumeGestureChunk(Logic.emptyGestureBuffer(), "x".repeat(300) + "\n" + open)
+  assert.equal(overflow.skip, false)
+  assert.equal(overflow.lines.length, 1)
+  assert.equal(Logic.parseGestureLine(overflow.lines[0]).kind, "open")
+
+  const noNewline = Logic.consumeGestureChunk(Logic.emptyGestureBuffer(), "x".repeat(300))
+  assert.equal(noNewline.skip, true)
+  assert.equal(noNewline.text, "")
+  assert.equal(noNewline.lines.length, 0)
+  const after = Logic.consumeGestureChunk(noNewline, "still-going\n" + open)
+  assert.equal(after.skip, false)
+  assert.equal(after.lines.length, 1)
+  assert.ok(after.text.length <= Logic.MAX_GESTURE_LINE)
 })
 
 test("normalizeEntry caps untrusted strings and strips img tags", () => {

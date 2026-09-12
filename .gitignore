@@ -2,7 +2,14 @@ __pycache__/
 *.pyc
 AGENTS.md
 CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+.cursorrules
+.windsurfrules
+copilot-instructions.md
+.mcp.json
 .agents/
 .claude/
 .codex/
 .gemini/
+.cursor/

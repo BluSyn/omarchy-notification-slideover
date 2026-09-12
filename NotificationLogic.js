@@ -73,7 +73,9 @@ function confinedOmarchyBin(omarchyPath, name) {
   var root = stripTrailingSlashes(omarchyPath)
   if (!root || root.charAt(0) !== "/") return ""
   if (root.indexOf("\0") >= 0 || root.indexOf("..") >= 0) return ""
-  if (root.indexOf("/omarchy") === -1) return ""
+  var slash = root.lastIndexOf("/")
+  if (slash < 1) return ""
+  if (root.slice(slash + 1) !== "omarchy") return ""
   return root + "/bin/" + name
 }
 
@@ -374,6 +376,49 @@ function notificationIconSource(icon, imagesDir, home) {
   return "file://" + root + "/" + rest
 }
 
+function emptyGestureBuffer() {
+  return { text: "", skip: false }
+}
+
+// SplitParser has no line cap. Assemble newline-delimited frames here so an
+// oversized write without a newline cannot grow past MAX_GESTURE_LINE.
+function consumeGestureChunk(state, chunk, maxLine) {
+  var limit = maxLine === undefined ? MAX_GESTURE_LINE : Number(maxLine)
+  if (!isFinite(limit) || limit < 1) limit = MAX_GESTURE_LINE
+  var buf = state && typeof state === "object" ? state : emptyGestureBuffer()
+  var text = String(buf.text || "")
+  var skip = !!buf.skip
+  var incoming = String(chunk || "")
+  var lines = []
+  var i = 0
+  while (i < incoming.length) {
+    if (skip) {
+      var skipNl = incoming.indexOf("\n", i)
+      if (skipNl === -1) return { text: "", skip: true, lines: lines }
+      skip = false
+      text = ""
+      i = skipNl + 1
+      continue
+    }
+    var nl = incoming.indexOf("\n", i)
+    var end = nl === -1 ? incoming.length : nl
+    var room = limit - text.length
+    var take = end - i
+    if (take > room) {
+      skip = true
+      text = ""
+      i = i + room
+      continue
+    }
+    text += incoming.slice(i, end)
+    if (nl === -1) return { text: text, skip: false, lines: lines }
+    if (text.length) lines.push(text)
+    text = ""
+    i = nl + 1
+  }
+  return { text: text, skip: skip, lines: lines }
+}
+
 function parseGestureLine(raw) {
   var text = String(raw || "").trim()
   if (!text || text.length > MAX_GESTURE_LINE || text.charAt(0) !== "{") return null
@@ -501,6 +546,8 @@ if (typeof module !== "undefined") {
     safeAppName: safeAppName,
     isThemeIconName: isThemeIconName,
     notificationIconSource: notificationIconSource,
+    emptyGestureBuffer: emptyGestureBuffer,
+    consumeGestureChunk: consumeGestureChunk,
     parseGestureLine: parseGestureLine,
     snapDecision: snapDecision,
     applyGestureProgress: applyGestureProgress,

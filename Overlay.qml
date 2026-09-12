@@ -32,6 +32,7 @@ Item {
   property int matchCount: 0
   property var hiddenHistoryKeys: ({})
   property var now: new Date()
+  property var gestureBuf: ({ text: "", skip: false })
 
   readonly property string pluginId: (manifest && manifest.id) || "blusyn.notification-slideover"
   readonly property string pluginDir: (manifest && manifest.__sourceDir) || ""
@@ -252,6 +253,13 @@ Item {
     }
   }
 
+  function handleGestureChunk(chunk) {
+    var next = NotificationLogic.consumeGestureChunk(root.gestureBuf, chunk)
+    root.gestureBuf = { text: next.text, skip: next.skip }
+    var lines = next.lines || []
+    for (var i = 0; i < lines.length; i++) root.handleGesture(lines[i])
+  }
+
   function handleGesture(line) {
     if (line === undefined || line === null) return
     if (String(line).length > NotificationLogic.maxGestureLine()) return
@@ -368,9 +376,14 @@ Item {
     running: false
     command: NotificationLogic.gestureCommand(root.pluginDir)
     stdout: SplitParser {
-      onRead: function(data) { root.handleGesture(data) }
+      // Empty marker yields OS read chunks instead of unbounded newline
+      // buffering. consumeGestureChunk assembles frames and drops anything
+      // past MAX_GESTURE_LINE, including a write that never sends a newline.
+      splitMarker: ""
+      onRead: function(data) { root.handleGestureChunk(data) }
     }
     onExited: {
+      root.gestureBuf = { text: "", skip: false }
       // 0 means the watcher is optional and chose to stop (no python-libevdev).
       // Keyboard, mouse-edge drag, and Hyprland binds still open the sheet.
       var code = 1
